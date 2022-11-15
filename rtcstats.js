@@ -245,7 +245,7 @@ export default function(
                     const { iceConnectionState } = pc;
 
                     sendStatsEntry('oniceconnectionstatechange', id, iceConnectionState);
-                    eventCallback({
+                    eventCallback?.({
                         type: PC_ICE_CON_STATE_CHANGE,
                         body: {
                             pcId: id,
@@ -261,7 +261,7 @@ export default function(
                     const { connectionState } = pc;
 
                     sendStatsEntry('onconnectionstatechange', id, pc.connectionState);
-                    eventCallback({
+                    eventCallback?.({
                         type: PC_CON_STATE_CHANGE,
                         body: {
                             pcId: id,
@@ -269,7 +269,6 @@ export default function(
                             state: connectionState
                         }
                     });
-
                 });
                 pc.addEventListener('negotiationneeded', () => {
                     sendStatsEntry('onnegotiationneeded', id, undefined);
