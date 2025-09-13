@@ -3,3 +3,6 @@ dump.json
 out/*
 rtcstats.min.js
 .vscode
+test-output/
+test-results/
+playwright-report/

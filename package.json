@@ -3,6 +3,7 @@
   "version": "9.7.0",
   "description": "gather WebRTC API traces and statistics",
   "main": "rtcstats.js",
+  "type": "module",
   "dependencies": {
     "@jitsi/js-utils": "^2.2.0",
     "@jitsi/logger": "2.0.2",
@@ -11,11 +12,41 @@
   },
   "devDependencies": {
     "@jitsi/eslint-config": "^4.1.1",
-    "eslint": "8.1.0",
-    "eslint-plugin-import": "2.25.2"
+    "@playwright/test": "^1.55.0",
+    "@rollup/plugin-commonjs": "^28.0.6",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@rollup/plugin-replace": "^6.0.2",
+    "eslint": "^8.57.0",
+    "eslint-plugin-import": "2.25.2",
+    "http-server": "^14.1.1",
+    "rollup": "^4.50.1"
+  },
+  "scripts-info": {
+    "lint": "Run ESLint on source files",
+    "test": "Run all tests in all browsers (Chromium, Firefox, WebKit)",
+    "test:headed": "Run tests with visible browser windows (for visual debugging)",
+    "test:debug": "Run tests in debug mode with Playwright Inspector (step through tests)",
+    "test:report": "Open HTML test report from last test run (starts a web server)",
+    "test:ui": "Open Playwright UI mode for interactive test development",
+    "test:chrome": "Run tests only in Chromium/Chrome",
+    "test:firefox": "Run tests only in Firefox",
+    "test:webkit": "Run tests only in WebKit/Safari",
+    "test:clean": "Remove all test artifacts (screenshots, videos, reports)"
   },
   "scripts": {
-    "lint": "eslint rtcstats.js trace-ws.js"
+    "lint": "eslint rtcstats.js trace-ws.js tests/",
+    "lint:fix": "eslint rtcstats.js trace-ws.js tests/ --fix",
+    "build:test": "rollup -c rollup.test.config.js",
+    "pretest": "npm run build:test",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:report": "playwright show-report test-output/report",
+    "test:ui": "playwright test --ui",
+    "test:chrome": "playwright test --project=chromium",
+    "test:firefox": "playwright test --project=firefox",
+    "test:webkit": "playwright test --project=webkit",
+    "test:clean": "rm -rf test-output"
   },
   "repository": {
     "type": "git",
