@@ -59,7 +59,10 @@ test.describe('getUserMedia interception', () => {
      * Test that successful getUserMedia calls are intercepted and traced to WebSocket
      * Verifies the initial call and success event are properly tracked
      */
-    test('should intercept successful getUserMedia calls', async ({ page, context }) => {
+    test('should intercept successful getUserMedia calls', async ({ page, context }, testInfo) => {
+        // Skip on chromium-no-fake-ui project
+        test.skip(testInfo.project.name === 'chromium-no-fake-ui');
+
         // Grant permissions for fake devices
         await context.grantPermissions([ 'camera', 'microphone' ]);
         await loadRTCStats(page);
@@ -117,16 +120,22 @@ test.describe('getUserMedia interception', () => {
     });
 
     /**
-     * Test that getUserMedia failures are properly tracked when permissions are denied
-     * or constraints cannot be satisfied
+     * Test that getUserMedia failures are properly tracked when an OverconstrainedError occurs
+     * This happens when constraints cannot be satisfied by available hardware
      */
-    test('should track getUserMedia failures', async ({ page }) => {
+    test('should track OverconstrainedError when video constraints cannot be satisfied', async ({ page }, testInfo) => {
+        // Skip on chromium-no-fake-ui project
+        test.skip(testInfo.project.name === 'chromium-no-fake-ui');
         await loadRTCStats(page, mockWS);
 
         const result = await page.evaluate(async () => {
             try {
+                // Request impossible video dimensions that fake devices cannot satisfy
                 await navigator.mediaDevices.getUserMedia({
-                    video: { width: { exact: 99999 } }
+                    video: {
+                        width: { exact: 99999 },
+                        height: { exact: 99999 }
+                    }
                 });
 
                 return { success: true };
@@ -139,59 +148,9 @@ test.describe('getUserMedia interception', () => {
             }
         });
 
+        // Verify the specific error type
         expect(result.success).toBe(false);
-
-        // Small delay for mock WebSocket to process messages
-        await page.waitForTimeout(50);
-
-        const messages = mockWS.getMessages();
-        const errorMessages = filterMessagesByEventName(
-            messages,
-            'getUserMediaOnFailure',
-            'navigator.mediaDevices.getUserMediaOnFailure',
-            'getUserMediaFailed'
-        );
-
-        expect(errorMessages.length).toBeGreaterThan(0);
-
-        // Verify the error message contains the error name
-        const errorData = parseStatsMessage(errorMessages[0]);
-
-        expect(errorData[0]).toMatch(/getUserMediaOnFailure|getUserMediaFailed/);
-    });
-
-    /**
-     * Test that getUserMedia calls work when constraints cannot be satisfied
-     * Ensures the interception doesn't break error handling
-     */
-    test('should handle getUserMedia when constraints cannot be satisfied', async ({ page }) => {
-        await loadRTCStats(page, mockWS);
-
-        // Use impossible constraints that will definitely fail
-        const error = await page.evaluate(async () => {
-            try {
-                await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: { exact: 99999 },
-                        height: { exact: 99999 }
-                    },
-                    audio: {
-                        sampleRate: { exact: 999999 }
-                    }
-                });
-
-                return null;
-            } catch (err) {
-                return {
-                    name: err.name,
-                    message: err.message
-                };
-            }
-        });
-
-        // Should have failed due to impossible constraints
-        expect(error).toBeTruthy();
-        expect(error.name).toMatch(/OverconstrainedError|NotFoundError|NotReadableError|NotAllowedError/);
+        expect(result.error).toBe('OverconstrainedError');
 
         // Small delay for mock WebSocket to process messages
         await page.waitForTimeout(50);
@@ -208,13 +167,204 @@ test.describe('getUserMedia interception', () => {
         expect(gumCall).toBeTruthy();
 
         // Verify failure was tracked
-        const failureMessage = findMessageByEventName(
+        const errorMessages = filterMessagesByEventName(
             messages,
             'getUserMediaOnFailure',
-            'navigator.mediaDevices.getUserMediaOnFailure'
+            'navigator.mediaDevices.getUserMediaOnFailure',
+            'getUserMediaFailed'
         );
 
-        expect(failureMessage).toBeTruthy();
+        expect(errorMessages.length).toBeGreaterThan(0);
+
+        // Verify the error message contains the error name
+        const errorData = parseStatsMessage(errorMessages[0]);
+
+        expect(errorData[0]).toMatch(/getUserMediaOnFailure|getUserMediaFailed/);
+
+        // The error data should contain "OverconstrainedError"
+        expect(errorMessages[0].data).toContain('OverconstrainedError');
+    });
+
+    /**
+     * Test that getUserMedia failures are tracked when impossible audio constraints are specified
+     * This tests a different type of OverconstrainedError for audio instead of video
+     */
+    test('should track OverconstrainedError for impossible audio constraints', async ({ page }, testInfo) => {
+        // Skip on chromium-no-fake-ui project
+        test.skip(testInfo.project.name === 'chromium-no-fake-ui');
+        await loadRTCStats(page, mockWS);
+
+        const result = await page.evaluate(async () => {
+            try {
+                // Request impossible audio sample rate that fake devices cannot satisfy
+                await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: { exact: 999999 },
+                        echoCancellation: { exact: true },
+                        channelCount: { exact: 99 }
+                    }
+                });
+
+                return { success: true };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error.name,
+                    message: error.message
+                };
+            }
+        });
+
+        // Verify the specific error type
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('OverconstrainedError');
+
+        // Small delay for mock WebSocket to process messages
+        await page.waitForTimeout(50);
+
+        const messages = mockWS.getMessages();
+
+        // Verify the call was tracked
+        const gumCall = findMessageByEventName(
+            messages,
+            'getUserMedia',
+            'navigator.mediaDevices.getUserMedia'
+        );
+
+        expect(gumCall).toBeTruthy();
+
+        // Verify failure was tracked
+        const errorMessages = filterMessagesByEventName(
+            messages,
+            'getUserMediaOnFailure',
+            'navigator.mediaDevices.getUserMediaOnFailure',
+            'getUserMediaFailed'
+        );
+
+        expect(errorMessages.length).toBeGreaterThan(0);
+
+        // The error data should contain "OverconstrainedError"
+        expect(errorMessages[0].data).toContain('OverconstrainedError');
+    });
+
+    /**
+     * Test that getUserMedia failures are tracked when permissions are not available
+     * This test only runs on chromium-no-fake-ui project to test permission/access errors
+     * Note: file:// protocol returns NotSupportedError instead of NotAllowedError
+     */
+    test('should track permission errors when media access is denied', async ({ page }, testInfo) => {
+        // Only run on chromium-no-fake-ui project
+        test.skip(testInfo.project.name !== 'chromium-no-fake-ui');
+
+        await loadRTCStats(page, mockWS);
+
+        const result = await page.evaluate(async () => {
+            try {
+                // Request media without permissions (context has no permissions)
+                await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: true
+                });
+
+                return { success: true };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error.name,
+                    message: error.message
+                };
+            }
+        });
+
+        // Verify the specific error type
+        expect(result.success).toBe(false);
+
+        // When using file:// protocol without fake UI, we get NotSupportedError
+        // instead of NotAllowedError. Both indicate permission/access issues.
+        expect(result.error).toMatch(/NotAllowedError|NotSupportedError/);
+
+        // Small delay for mock WebSocket to process messages
+        await page.waitForTimeout(50);
+
+        const messages = mockWS.getMessages();
+
+        // Verify the call was tracked
+        const gumCall = findMessageByEventName(
+            messages,
+            'getUserMedia',
+            'navigator.mediaDevices.getUserMedia'
+        );
+
+        expect(gumCall).toBeTruthy();
+
+        // Verify failure was tracked
+        const errorMessages = filterMessagesByEventName(
+            messages,
+            'getUserMediaOnFailure',
+            'navigator.mediaDevices.getUserMediaOnFailure',
+            'getUserMediaFailed'
+        );
+
+        expect(errorMessages.length).toBeGreaterThan(0);
+
+        // The error data should contain the error (NotSupportedError or NotAllowedError)
+        expect(errorMessages[0].data).toMatch(/NotAllowedError|NotSupportedError/);
+    });
+
+    /**
+     * Test that getUserMedia handles invalid constraint formats (TypeError)
+     * This verifies API contract validation and error tracking
+     */
+    test('should track TypeError when constraints are invalid', async ({ page }, testInfo) => {
+        // Skip on chromium-no-fake-ui project
+        test.skip(testInfo.project.name === 'chromium-no-fake-ui');
+        await loadRTCStats(page, mockWS);
+
+        const result = await page.evaluate(async () => {
+            try {
+                // Pass invalid constraints (must be at least one of audio/video)
+                await navigator.mediaDevices.getUserMedia({});
+
+                return { success: true };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error.name,
+                    message: error.message
+                };
+            }
+        });
+
+        // Verify the specific error type
+        expect(result.success).toBe(false);
+        expect(result.error).toBe('TypeError');
+
+        // Small delay for mock WebSocket to process messages
+        await page.waitForTimeout(50);
+
+        const messages = mockWS.getMessages();
+
+        // Verify the call was tracked
+        const gumCall = findMessageByEventName(
+            messages,
+            'getUserMedia',
+            'navigator.mediaDevices.getUserMedia'
+        );
+
+        expect(gumCall).toBeTruthy();
+
+        // Verify failure was tracked
+        const errorMessages = filterMessagesByEventName(
+            messages,
+            'getUserMediaOnFailure',
+            'navigator.mediaDevices.getUserMediaOnFailure',
+            'getUserMediaFailed'
+        );
+
+        expect(errorMessages.length).toBeGreaterThan(0);
+
+        // The error data should contain "TypeError"
+        expect(errorMessages[0].data).toContain('TypeError');
     });
 });
 

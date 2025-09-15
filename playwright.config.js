@@ -29,6 +29,19 @@ export default defineConfig({
             }
         },
         {
+            name: 'chromium-no-fake-ui',
+            use: {
+                // No permissions granted by default to test NotAllowedError
+                permissions: [],
+                launchOptions: {
+                    // Note: NOT including --use-fake-ui-for-media-stream to allow permission testing
+                    args: [
+                        '--use-fake-device-for-media-stream'
+                    ]
+                }
+            }
+        },
+        {
             name: 'firefox',
             use: {
                 permissions: [ 'camera', 'microphone' ],
