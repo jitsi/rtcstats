@@ -5,18 +5,28 @@
  * calls are properly intercepted in a real browser context.
  */
 
+/* global process */
 import { test, expect } from '@playwright/test';
+import path from 'path';
 
-import { loadSimpleRTCStats } from './helpers/simple-rtcstats.js';
-import { MockWebSocketServer } from './helpers/test-utils.js';
+import {
+    MockWebSocketServer,
+    loadRTCStats,
+    findMessageByEventName
+} from './helpers/test-utils.js';
 
 /**
  * Basic integration test to verify trace function and getUserMedia interception
  * work together in an HTTPS context
  */
-test('Test trace function', async ({ page }) => {
-    // Navigate to HTTPS page
-    await page.goto('https://example.com');
+test('Test trace function', async ({ page, context }) => {
+    // Use local test page for consistent testing
+    const testPagePath = path.join(process.cwd(), 'tests', 'helpers', 'test-page.html');
+
+    await page.goto(`file://${testPagePath}`);
+
+    // Grant permissions for fake devices
+    await context.grantPermissions([ 'camera', 'microphone' ]);
 
     // Setup mock WebSocket
     const mockWS = new MockWebSocketServer();
@@ -24,13 +34,11 @@ test('Test trace function', async ({ page }) => {
     await mockWS.setup(page);
 
 
-    // Load simple RTCStats
-    await loadSimpleRTCStats(page);
+    // Load RTCStats bundle
+    await loadRTCStats(page, mockWS);
 
-    // Test direct trace call
-    await page.evaluate(() => {
-        window.trace('test-event', 'test-label', { test: 'data' });
-    });
+    // Test direct trace call - not available with full bundle
+    // The full bundle traces internally but doesn't expose a window.trace function
 
     await page.waitForTimeout(100);
 
@@ -45,23 +53,25 @@ test('Test trace function', async ({ page }) => {
 
     await page.waitForTimeout(500);
 
-    const messages2 = mockWS.getMessages();
+    const messages = mockWS.getMessages();
 
     // Verify that messages were sent to the WebSocket
-    expect(messages2.length).toBeGreaterThan(0);
+    expect(messages.length).toBeGreaterThan(0);
 
-    // Verify we have both trace and getUserMedia messages
-    const hasTraceMessage = messages2.some(m => {
-        const parsed = JSON.parse(m.data);
+    // Verify we have getUserMedia messages
+    const getUserMediaMessage = findMessageByEventName(
+        messages,
+        'navigator.mediaDevices.getUserMedia'
+    );
 
-        return parsed[0] === 'test-event';
-    });
-    const hasGetUserMediaMessage = messages2.some(m => {
-        const parsed = JSON.parse(m.data);
+    expect(getUserMediaMessage).toBeTruthy();
 
-        return parsed[0] === 'navigator.mediaDevices.getUserMedia';
-    });
+    // Also verify either success or failure message
+    const outcomeMessage = findMessageByEventName(
+        messages,
+        'navigator.mediaDevices.getUserMediaOnFailure',
+        'navigator.mediaDevices.getUserMediaOnSuccess'
+    );
 
-    expect(hasTraceMessage).toBe(true);
-    expect(hasGetUserMediaMessage).toBe(true);
+    expect(outcomeMessage).toBeTruthy();
 });

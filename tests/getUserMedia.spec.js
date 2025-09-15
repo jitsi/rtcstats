@@ -7,17 +7,22 @@
  * - Success and failure scenarios
  * - Constraint tracking
  *
- * Note: These tests use loadSimpleRTCStats (simplified implementation) rather than
- * the full rtcstats bundle because the production rtcstats.js has issues wrapping
- * getUserMedia in the test environment. The simplified implementation adequately
- * tests the interception behavior and trace message formatting.
+ * These tests verify the interception behavior and trace message formatting
+ * using the full RTCStats bundle.
  */
 
 /* global process */
 import { test, expect } from '@playwright/test';
 import path from 'path';
 
-import { MockWebSocketServer, loadRTCStats} from './helpers/test-utils.js';
+import {
+    MockWebSocketServer,
+    loadRTCStats,
+    findMessageByEventName,
+    filterMessagesByEventName,
+    getEventPayload,
+    parseStatsMessage
+} from './helpers/test-utils.js';
 
 test.describe('getUserMedia interception', () => {
     let mockWS;
@@ -54,7 +59,7 @@ test.describe('getUserMedia interception', () => {
      * Test that successful getUserMedia calls are intercepted and traced to WebSocket
      * Verifies the initial call and success event are properly tracked
      */
-    test.only('should intercept successful getUserMedia calls', async ({ page, context }) => {
+    test('should intercept successful getUserMedia calls', async ({ page, context }) => {
         // Grant permissions for fake devices
         await context.grantPermissions([ 'camera', 'microphone' ]);
         await loadRTCStats(page);
@@ -82,29 +87,28 @@ test.describe('getUserMedia interception', () => {
         const messages = mockWS.getMessages();
 
         // Verify getUserMedia was called with correct constraints
-        const gumCall = messages.find(m => {
-            const parsed = JSON.parse(m.data);
-
-            return parsed[0] === 'getUserMedia' || parsed[0] === 'navigator.mediaDevices.getUserMedia';
-        });
+        const gumCall = findMessageByEventName(
+            messages,
+            'getUserMedia',
+            'navigator.mediaDevices.getUserMedia'
+        );
 
         expect(gumCall).toBeTruthy();
-        const constraints = JSON.parse(gumCall.data)[2];
+        const constraints = getEventPayload(gumCall);
 
         expect(constraints).toHaveProperty('audio', true);
 
         // Verify we got a success message
-        const successMessage = messages.find(m => {
-            const parsed = JSON.parse(m.data);
-
-            return parsed[0] === 'getUserMediaOnSuccess'
-                || parsed[0] === 'navigator.mediaDevices.getUserMediaOnSuccess';
-        });
+        const successMessage = findMessageByEventName(
+            messages,
+            'getUserMediaOnSuccess',
+            'navigator.mediaDevices.getUserMediaOnSuccess'
+        );
 
         expect(successMessage).toBeTruthy();
 
         // Verify the success message contains stream info
-        const successData = JSON.parse(successMessage.data)[2];
+        const successData = getEventPayload(successMessage);
 
         expect(successData).toHaveProperty('id', streamId);
         expect(successData).toHaveProperty('tracks');
@@ -117,7 +121,7 @@ test.describe('getUserMedia interception', () => {
      * or constraints cannot be satisfied
      */
     test('should track getUserMedia failures', async ({ page }) => {
-        await loadSimpleRTCStats(page);
+        await loadRTCStats(page, mockWS);
 
         const result = await page.evaluate(async () => {
             try {
@@ -141,18 +145,17 @@ test.describe('getUserMedia interception', () => {
         await page.waitForTimeout(50);
 
         const messages = mockWS.getMessages();
-        const errorMessages = messages.filter(m => {
-            const parsed = JSON.parse(m.data);
-
-            return parsed[0] === 'getUserMediaOnFailure'
-                || parsed[0] === 'navigator.mediaDevices.getUserMediaOnFailure'
-                || parsed[0] === 'getUserMediaFailed';
-        });
+        const errorMessages = filterMessagesByEventName(
+            messages,
+            'getUserMediaOnFailure',
+            'navigator.mediaDevices.getUserMediaOnFailure',
+            'getUserMediaFailed'
+        );
 
         expect(errorMessages.length).toBeGreaterThan(0);
 
         // Verify the error message contains the error name
-        const errorData = JSON.parse(errorMessages[0].data);
+        const errorData = parseStatsMessage(errorMessages[0]);
 
         expect(errorData[0]).toMatch(/getUserMediaOnFailure|getUserMediaFailed/);
     });
@@ -162,7 +165,7 @@ test.describe('getUserMedia interception', () => {
      * Ensures the interception doesn't break error handling
      */
     test('should handle getUserMedia when constraints cannot be satisfied', async ({ page }) => {
-        await loadSimpleRTCStats(page);
+        await loadRTCStats(page, mockWS);
 
         // Use impossible constraints that will definitely fail
         const error = await page.evaluate(async () => {
@@ -196,21 +199,20 @@ test.describe('getUserMedia interception', () => {
         const messages = mockWS.getMessages();
 
         // Verify the call was tracked
-        const gumCall = messages.find(m => {
-            const parsed = JSON.parse(m.data);
-
-            return parsed[0] === 'getUserMedia' || parsed[0] === 'navigator.mediaDevices.getUserMedia';
-        });
+        const gumCall = findMessageByEventName(
+            messages,
+            'getUserMedia',
+            'navigator.mediaDevices.getUserMedia'
+        );
 
         expect(gumCall).toBeTruthy();
 
         // Verify failure was tracked
-        const failureMessage = messages.find(m => {
-            const parsed = JSON.parse(m.data);
-
-            return parsed[0] === 'getUserMediaOnFailure'
-                || parsed[0] === 'navigator.mediaDevices.getUserMediaOnFailure';
-        });
+        const failureMessage = findMessageByEventName(
+            messages,
+            'getUserMediaOnFailure',
+            'navigator.mediaDevices.getUserMediaOnFailure'
+        );
 
         expect(failureMessage).toBeTruthy();
     });

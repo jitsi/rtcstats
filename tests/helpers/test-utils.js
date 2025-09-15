@@ -42,6 +42,11 @@ export class MockWebSocketServer {
             window.originalWebSocket = window.WebSocket;
 
             window.WebSocket = class MockWebSocket extends EventTarget {
+                static CONNECTING = 0;
+                static OPEN = 1;
+                static CLOSING = 2;
+                static CLOSED = 3;
+
                 /**
                  * Mock WebSocket constructor
                  * @param {string} url - WebSocket URL
@@ -55,6 +60,21 @@ export class MockWebSocketServer {
                     setTimeout(() => {
                         this.readyState = 1;
                         this.dispatchEvent(new Event('open'));
+
+                        // Send initial sequence number message to enable sending
+                        setTimeout(() => {
+                            if (this.onmessage) {
+                                this.onmessage({
+                                    data: JSON.stringify({
+                                        type: 'sn',
+                                        body: {
+                                            value: 0,
+                                            state: 'initial'
+                                        }
+                                    })
+                                });
+                            }
+                        }, 20);
                     }, 10);
                 }
 
@@ -172,10 +192,18 @@ export async function loadRTCStats(page, config = {}) {
         // Initialize trace-ws which returns the trace function
         const trace = traceInit({
             endpoint: rtcConfig.endpoint,
-            useLegacy: rtcConfig.useLegacy
+            meetingFqn: 'test-meeting',
+            onCloseCallback: event => {
+                console.log('WebSocket closed:', event);
+            },
+            useLegacy: rtcConfig.useLegacy,
+            obfuscate: false // Disable obfuscation for testing
         });
 
         window.trace = trace;
+
+        // Connect the WebSocket
+        trace.connect();
 
         // Debug logging for verification
         console.log('navigator.mediaDevices exists?', Boolean(navigator.mediaDevices));
@@ -184,7 +212,7 @@ export async function loadRTCStats(page, config = {}) {
         // Initialize rtcstats with trace and config
         console.log('Calling rtcstatsInit...');
         const result = rtcstatsInit(
-            { statsEntry: trace },
+            { statsEntry: trace.statsEntry },
             {
                 pollInterval: rtcConfig.pollInterval,
                 prefixesToWrap: [ '' ], // Only wrap the standard prefix for now
@@ -232,5 +260,84 @@ export function waitForMessages(mockWS, count, timeout = 5000) {
 
         checkMessages();
     });
+}
+
+/**
+ * Parse a stats message from the WebSocket
+ * Handles the double-encoded JSON format from RTCStats bundle
+ * @param {Object} message - Raw WebSocket message with {data: string}
+ * @returns {Array|null} Parsed data array [eventName, id, payload, timestamp, sequence] or null
+ * @throws {Error} If message.data exists but contains invalid JSON
+ */
+export function parseStatsMessage(message) {
+    if (!message || !message.data) {
+        return null;
+    }
+
+    // Parse outer JSON - let it throw if invalid
+    const msg = JSON.parse(message.data);
+
+    if (msg && msg.type === 'stats-entry' && msg.data) {
+        // Parse inner JSON - let it throw if invalid
+        const parsedData = JSON.parse(msg.data);
+
+        // Validate that it's an array with at least the event name
+        if (Array.isArray(parsedData) && parsedData.length > 0) {
+            return parsedData;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Find the first message matching any of the given event names
+ * @param {Array} messages - Array of WebSocket messages
+ * @param {...string} eventNames - Event names to match (e.g., 'getUserMedia', 'navigator.mediaDevices.getUserMedia')
+ * @returns {Object|undefined} The first matching message or undefined
+ * @throws {Error} If message parsing fails
+ */
+export function findMessageByEventName(messages, ...eventNames) {
+    if (!Array.isArray(messages) || eventNames.length === 0) {
+        return undefined;
+    }
+
+    return messages.find(m => {
+        const data = parseStatsMessage(m);
+
+        return data && eventNames.includes(data[0]);
+    });
+}
+
+/**
+ * Filter messages matching any of the given event names
+ * @param {Array} messages - Array of WebSocket messages
+ * @param {...string} eventNames - Event names to match
+ * @returns {Array} Array of matching messages
+ * @throws {Error} If message parsing fails
+ */
+export function filterMessagesByEventName(messages, ...eventNames) {
+    if (!Array.isArray(messages) || eventNames.length === 0) {
+        return [];
+    }
+
+    return messages.filter(m => {
+        const data = parseStatsMessage(m);
+
+        return data && eventNames.includes(data[0]);
+    });
+}
+
+/**
+ * Get the event data from a stats message
+ * @param {Object} message - WebSocket message
+ * @returns {Object|null} The event payload (third element of data array) or null
+ * @throws {Error} If message parsing fails
+ */
+export function getEventPayload(message) {
+    const data = parseStatsMessage(message);
+
+    // Check that the data array has at least 3 elements (event, id, payload)
+    return data && data.length > 2 ? data[2] : null;
 }
 
