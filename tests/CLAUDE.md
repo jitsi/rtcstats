@@ -1,6 +1,7 @@
 # RTCStats Test Guidelines
 
 ## Critical Information
+- Don't test legacy flow as it will be removed very soon.
 
 ### WebSocket Mock Requirements
 - Mock must send initial sequence number: `{type: 'sn', body: {value: 0, state: 'initial'}}`

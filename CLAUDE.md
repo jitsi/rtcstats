@@ -66,3 +66,4 @@ The library tracks:
 
 ## Guidelines
 - Make sure linting rules are followed when applying changes
+- As we go along save the plans in the plans folder

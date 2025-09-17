@@ -1,4 +1,3 @@
-/* eslint-disable */
 var RTCStatsBundle = (function (exports) {
     'use strict';
 
@@ -987,8 +986,10 @@ var RTCStatsBundle = (function (exports) {
     }
 
     /**
-     * Mock modules for testing RTCStats
-     * These mocks replace Jitsi-specific dependencies in the test environment
+     * @fileoverview Mock modules for testing RTCStats
+     *
+     * These mocks replace Jitsi-specific dependencies in the test environment,
+     * allowing rtcstats to be tested independently of the Jitsi codebase.
      */
 
     /**
@@ -996,33 +997,72 @@ var RTCStatsBundle = (function (exports) {
      * Always returns Chrome/Chromium for consistent test results
      */
     class BrowserDetection {
+        /**
+         * Check if browser is Chrome
+         * @returns {boolean} Always true for testing
+         */
         isChrome() {
             return true;
         }
 
+        /**
+         * Check if browser is Firefox
+         * @returns {boolean} Always false for testing
+         */
         isFirefox() {
             return false;
         }
 
+        /**
+         * Check if browser is WebKit
+         * @returns {boolean} Always false for testing
+         */
         isWebKit() {
             return false;
         }
 
+        /**
+         * Check if browser is Chromium-based
+         * @returns {boolean} Always true for testing
+         */
         isChromiumBased() {
             return true;
         }
 
+        /**
+         * Check if browser is WebKit-based
+         * @returns {boolean} Always false for testing
+         */
         isWebKitBased() {
             return false;
         }
 
+        /**
+         * Check if running in React Native
+         * @returns {boolean} Always false for testing
+         */
         isReactNative() {
             return false;
         }
     }
 
+    /**
+     * Mock logger factory
+     * Returns a logger with console log methods for debugging tests
+     */
+    function getLogger(name) {
+        return {
+            info: (...args) => console.log(`[${name}] INFO:`, ...args),
+            warn: (...args) => console.warn(`[${name}] WARN:`, ...args),
+            error: (...args) => console.error(`[${name}] ERROR:`, ...args),
+            debug: (...args) => console.debug(`[${name}] DEBUG:`, ...args)
+        };
+    }
+
     /* eslint-disable prefer-rest-params */
     /* eslint-disable no-param-reassign */
+
+    const logger = getLogger('rtctstats');
 
     /**
      * transforms a maplike to an object. Mostly for getStats + JSON.parse(JSON.stringify())
@@ -1162,9 +1202,7 @@ var RTCStatsBundle = (function (exports) {
                 sendSdp = false,
                 prefixesToWrap = [ '' ],
                 eventCallback }
-      ) {
-
-        console.info('[ADBG] Hello there...');
+    ) {
         let peerconnectioncounter = 0;
 
         const browserDetection = new BrowserDetection();
@@ -1175,6 +1213,7 @@ var RTCStatsBundle = (function (exports) {
 
         // Only initialize rtcstats if it's run in a supported browser
         if (!(isFirefox || isChromiumBased || isWebKitBased || isReactNative)) {
+            logger.warn('RTCStats unsupported browser.');
 
             return;
         }
@@ -1666,8 +1705,6 @@ var RTCStatsBundle = (function (exports) {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             const origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
             const gum = function() {
-                console.info('[ADBG] Totally called GUM...');
-
                 try {
                     sendStatsEntry('navigator.mediaDevices.getUserMedia', null, arguments[0]);
                 } catch (error) {
@@ -1854,16 +1891,11 @@ var RTCStatsBundle = (function (exports) {
             // It creates a copy of the message so that the message from the buffer have the data attribute unstringified
             const copyMsg = Object.assign({}, msg);
 
-            console.info('[ADBG] Trying to send a message...');
-
-
             if (copyMsg.type !== 'identity' && copyMsg.data) {
                 copyMsg.data = JSON.stringify(copyMsg.data);
             }
             if (connection && (connection.readyState === WebSocket.OPEN) && canSendMessage) {
                 connection.send(JSON.stringify(copyMsg));
-            } else {
-              console.info('[ADBG] Cant send message...');
             }
         };
 
