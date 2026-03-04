@@ -41,6 +41,9 @@ export default function({ endpoint, meetingFqn, onCloseCallback, useLegacy, obfu
     // the number of ms spent trying to reconnect to the server.
     let reconnectSpentTime = 0;
 
+    // the number of reconnect attempts made since the last successful connection.
+    let reconnectAttempts = 0;
+
     // flag indicating if data can be sent to the server.
     let canSendMessage = false;
 
@@ -193,11 +196,12 @@ export default function({ endpoint, meetingFqn, onCloseCallback, useLegacy, obfu
             }
 
             if (reconnectSpentTime < MAX_RECONNECT_TIME) {
-                const reconnectTimeoutTimeCandidate = getTimeout(reconnectSpentTime);
+                const reconnectTimeoutTimeCandidate = getTimeout(reconnectAttempts);
                 const reconnectTimeoutTime = reconnectSpentTime + reconnectTimeoutTimeCandidate < MAX_RECONNECT_TIME
                     ? reconnectTimeoutTimeCandidate
                     : MAX_RECONNECT_TIME - reconnectSpentTime;
 
+                reconnectAttempts++;
                 reconnectSpentTime += reconnectTimeoutTime;
                 reconnectTimeout = setTimeout(() => trace.connect(isBreakoutRoom, true), reconnectTimeoutTime);
             }
@@ -235,6 +239,7 @@ export default function({ endpoint, meetingFqn, onCloseCallback, useLegacy, obfu
                 if (state === 'initial') {
                     reconnectTimeout && clearTimeout(reconnectTimeout);
                     reconnectSpentTime = 0;
+                    reconnectAttempts = 0;
                     canSendMessage = true;
                     for (let i = 0; i < buffer.length; i++) {
                         sendMessage(buffer[i]);
