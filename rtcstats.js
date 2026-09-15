@@ -218,6 +218,28 @@ export default function(
                 pc.addEventListener('icecandidate', e => {
                     sendStatsEntry('onicecandidate', id, e.candidate);
                 });
+
+                // The event fires once per failed server per gathering attempt, so record only the first
+                // failure of each (url, errorCode) pair to keep retries from flooding the dump.
+                const reportedIceCandidateErrors = new Set();
+
+                pc.addEventListener('icecandidateerror', e => {
+                    const { address, errorCode, errorText, port, url } = e;
+                    const key = `${url} ${errorCode}`;
+
+                    if (reportedIceCandidateErrors.has(key)) {
+                        return;
+                    }
+
+                    reportedIceCandidateErrors.add(key);
+                    sendStatsEntry('onicecandidateerror', id, {
+                        address,
+                        errorCode,
+                        errorText,
+                        port,
+                        url
+                    });
+                });
                 pc.addEventListener('addstream', e => {
                     sendStatsEntry(
                         'onaddstream',
