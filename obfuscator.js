@@ -144,6 +144,13 @@ export default function(data) {
             data[2] = jsonRepr;
         }
         break;
+    case 'onicecandidateerror':
+        // The url identifies the STUN/TURN server and is kept, the address is the local one the failed
+        // allocation was attempted from.
+        if (data[2] && data[2].address) {
+            data[2].address = obfuscateIP(data[2].address);
+        }
+        break;
     case 'setLocalDescription':
     case 'setRemoteDescription':
     case 'createOfferOnSuccess':
