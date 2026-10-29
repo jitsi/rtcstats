@@ -1,42 +1,76 @@
 // obfuscate ip addresses which should not be stored long-term.
 
 import SDPUtils from 'sdp';
+import { v4 as uuidv4 } from 'uuid';
+
+// Maps a network prefix to a token. The tokens are random rather than derived from the prefix, so there is
+// no key that could be used to recover it, and they are generated per page load and never transmitted, so
+// the same prefix maps to an unrelated token in every other session. Two addresses can therefore be compared
+// for subnet equality within a session without the prefix itself being recoverable or comparable elsewhere.
+const subnetTokens = new Map();
 
 /**
- * obfuscate ip, keeping address family intact.
- * @param {*} ip
+ * Returns the token for a network prefix, generating one on first use.
+ *
+ * @param {string} prefix - The network prefix, namespaced by address family.
+ * @returns {string} The token.
  */
-function maskIP(ip) {
-    if (ip.indexOf('[') === 0 || ip.indexOf(':') !== -1) {
-        // IPv6
-        // obfuscate last five bits like Chrome does.
-        return `${ip.split(':').slice(0, 3)
-            .join(':')}:x:x:x:x:x`;
+function getSubnetToken(prefix) {
+    let token = subnetTokens.get(prefix);
+
+    if (!token) {
+        token = uuidv4().replace(/-/g, '')
+            .slice(0, 8);
+        subnetTokens.set(prefix, token);
     }
 
-    const parts = ip.split('.');
-
-    if (parts.length === 4) {
-        parts[3] = 'x';
-
-        return parts.join('.');
-    }
-
-    return ip;
+    return token;
 }
 
 /**
- * Returns a simple IP mask.
+ * Expands an IPv6 address to its eight groups, restoring the zeroes elided by '::' and stripping the leading
+ * zeroes within each group, so that every way of writing the same address yields the same groups.
  *
+ * @param {string} ip - The IPv6 address, without brackets.
+ * @returns {Array<string>} The groups.
+ */
+function expandIPv6(ip) {
+    const [ head, tail ] = ip.split('::');
+    const headGroups = head ? head.split(':') : [];
+    const groups = ip.indexOf('::') === -1
+        ? headGroups
+        : [ ...headGroups,
+            ...new Array(Math.max(0, 8 - headGroups.length - (tail ? tail.split(':').length : 0))).fill('0'),
+            ...tail ? tail.split(':') : [] ];
+
+    return groups.map(group => (parseInt(group, 16) || 0).toString(16));
+}
+
+/**
+ * Replaces an IP with a token for the subnet it belongs to, keeping the address family intact. IPv4 is
+ * grouped by /24 and IPv6 by /64. Anything that does not parse as an address is masked outright.
+ *
+ * @param {*} ip
  * @returns masked IP.
  */
 function obfuscateIP(ip) {
     if (ip.indexOf('[') === 0 || ip.indexOf(':') !== -1) {
+        const groups = expandIPv6(ip.replace('[', '').replace(']', ''));
 
-        return 'x:x:x:x:x:x:x:x';
+        if (groups.length !== 8) {
+            return 'x:x:x:x:x:x:x:x';
+        }
+
+        return `${getSubnetToken(`6:${groups.slice(0, 4).join(':')}`)}:x`;
     }
 
-    return 'x.x.x.x';
+    const parts = ip.split('.');
+
+    if (parts.length !== 4) {
+        return 'x.x.x.x';
+    }
+
+    return `${getSubnetToken(`4:${parts.slice(0, 3).join('.')}`)}.x`;
 }
 
 /**
