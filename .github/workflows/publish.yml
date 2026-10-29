@@ -4,6 +4,10 @@ name: "Publish to npm"
 # package.json to one that npm does not have yet. The version bump itself
 # stays a normal pull request. A manual run (workflow_dispatch) publishes
 # the current master version if it is still missing from npm.
+#
+# Authentication uses npm trusted publishing (OIDC). The package settings on
+# npmjs.com list this repository and this workflow file as a trusted
+# publisher, so no npm token is stored in GitHub.
 
 on:
   push:
@@ -23,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -52,8 +57,6 @@ jobs:
         if: steps.check.outputs.publish == 'true'
       - run: npm publish --access public
         if: steps.check.outputs.publish == 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
 
       - name: "Tag the release"
         if: steps.check.outputs.publish == 'true'
