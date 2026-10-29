@@ -1,0 +1,63 @@
+name: "Publish to npm"
+
+# Publishes the package when a commit on master changes the version in
+# package.json to one that npm does not have yet. The version bump itself
+# stays a normal pull request. A manual run (workflow_dispatch) publishes
+# the current master version if it is still missing from npm.
+
+on:
+  push:
+    branches:
+      - "master"
+    paths:
+      - "package.json"
+  workflow_dispatch:
+
+concurrency:
+  group: "publish"
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: "Publish to npm"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: "Check whether this version is on npm"
+        id: check
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "$name@$version" version > /dev/null 2>&1; then
+            echo "$name@$version is already published, nothing to do."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$name@$version is not on npm, publishing."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - run: npm ci
+        if: steps.check.outputs.publish == 'true'
+      - run: npm run lint
+        if: steps.check.outputs.publish == 'true'
+      - run: npm publish --access public
+        if: steps.check.outputs.publish == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+
+      - name: "Tag the release"
+        if: steps.check.outputs.publish == 'true'
+        run: |
+          tag="v${{ steps.check.outputs.version }}"
+          git tag "$tag"
+          git push origin "$tag"
